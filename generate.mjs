@@ -823,6 +823,33 @@ export async function main() {
     fs.writeFileSync(cloneOut, svg, "utf8");
     console.log(`Synced to ${cloneOut}`);
   }
+
+  // Automatically update README.md cache buster to force Camo CDN cache refresh
+  updateReadmeCacheBuster(Date.now(), true);
+}
+
+export function updateReadmeCacheBuster(version = Date.now(), writeToFile = true) {
+  const versionStr = String(version);
+  if (!/^[a-zA-Z0-9_-]+$/.test(versionStr)) {
+    throw new Error("Invalid cache buster format");
+  }
+
+  const readmePath = path.resolve("README.md");
+  if (!fs.existsSync(readmePath)) {
+    return "";
+  }
+
+  let content = fs.readFileSync(readmePath, "utf8");
+  content = content.replace(
+    /(github-jet\.svg\?v=)[a-zA-Z0-9_-]+/g,
+    `$1${versionStr}`
+  );
+
+  if (writeToFile) {
+    fs.writeFileSync(readmePath, content, "utf8");
+    console.log(`Updated README.md cache buster to ?v=${versionStr}`);
+  }
+  return content;
 }
 
 // Only auto-execute main() if invoked directly from CLI

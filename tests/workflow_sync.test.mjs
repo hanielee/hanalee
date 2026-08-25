@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { updateReadmeCacheBuster } from "../generate.mjs";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 
@@ -21,7 +22,6 @@ describe("TDD: GitHub Actions Workflow & Sync Integrity", () => {
 
   test("should schedule runs at midnight (00:00 IST / 00:00 UTC)", () => {
     const content = fs.readFileSync(workflowPath, "utf8");
-    // Should match either 30 18 * * * (00:00 IST) or 0 0 * * * (00:00 UTC)
     const hasMidnightSchedule = /cron:\s*"(?:30 18 \* \* \*|0 0 \* \* \*)"/.test(content);
     assert.ok(hasMidnightSchedule, "Workflow must be scheduled at midnight");
   });
@@ -34,7 +34,6 @@ describe("TDD: GitHub Actions Workflow & Sync Integrity", () => {
     assert.ok(filePatternMatch, "file_pattern must be specified");
     const stagedPatterns = filePatternMatch[1].split(/\s+/).filter(Boolean);
 
-    // If dist/ is in .gitignore, dist/* must NOT be in file_pattern
     if (/^dist\/?$/m.test(gitignoreContent)) {
       for (const pattern of stagedPatterns) {
         assert.ok(
@@ -50,6 +49,15 @@ describe("TDD: GitHub Actions Workflow & Sync Integrity", () => {
     const readmeContent = fs.readFileSync(readmePath, "utf8");
     assert.match(readmeContent, /github-jet\.svg\?v=\d+/, "README.md should include a versioned cache-buster query parameter");
   });
+
+  test("should correctly update README.md cache buster timestamp via updateReadmeCacheBuster()", () => {
+    assert.ok(typeof updateReadmeCacheBuster === "function", "updateReadmeCacheBuster must be exported from generate.mjs");
+    const testTs = "1799999999";
+    const updatedContent = updateReadmeCacheBuster(testTs, false);
+    assert.match(updatedContent, new RegExp(`github-jet\\.svg\\?v=${testTs}`), "README content must include the new timestamp");
+    assert.match(updatedContent, /dark\.svg\?v=17/, "Must preserve dark.svg parameters");
+    assert.match(updatedContent, /light\.svg\?v=17/, "Must preserve light.svg parameters");
+  });
 });
 
 describe("Security: STRIDE & OWASP Workflow Hardening Suite", () => {
@@ -64,7 +72,6 @@ describe("Security: STRIDE & OWASP Workflow Hardening Suite", () => {
 
   test("STRIDE Tampering: Environment variable command injection defense", () => {
     const content = fs.readFileSync(workflowPath, "utf8");
-    // Ensure GH_USERNAME and GH_TOKEN are passed as env variables, NOT string-interpolated inside run commands
     assert.match(content, /env:\s*\n\s*GH_USERNAME:\s*\${{\s*github\.repository_owner\s*}}/, "GH_USERNAME must be securely mapped to env");
     assert.match(content, /run:\s*node generate\.mjs/, "Run step must invoke safe node entrypoint without shell interpolation");
   });
@@ -72,5 +79,13 @@ describe("Security: STRIDE & OWASP Workflow Hardening Suite", () => {
   test("STRIDE Information Disclosure: Skip CI loop prevention", () => {
     const content = fs.readFileSync(workflowPath, "utf8");
     assert.match(content, /\[skip ci\]/, "Auto-commit message must include [skip ci] to prevent recursive execution loops");
+  });
+
+  test("STRIDE Tampering: Cache buster parameter sanitization", () => {
+    // Attempt malicious injection payload inside cache buster
+    const maliciousPayload = `24" onload="alert(1)`;
+    assert.throws(() => {
+      updateReadmeCacheBuster(maliciousPayload, false);
+    }, /Invalid cache buster format/, "Must reject non-alphanumeric cache buster strings");
   });
 });
